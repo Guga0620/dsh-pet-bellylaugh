@@ -1,0 +1,27 @@
+# NOTICE
+
+## Source code
+
+The source code of this plugin is released under the MIT license; see LICENSE.
+
+## Bundled artwork
+
+`assets/spritesheet.webp` is a desktop-pet sprite sheet for the character
+**奶龙 / Nai Long**. The character and its artwork are the property of their
+respective rights holders. It is bundled here as user-supplied material for a
+personal desktop pet and is **not** covered by this project's MIT license.
+
+If you are a rights holder and want it removed, open an issue and it will be
+taken down.
+
+## Bundled audio
+
+`assets/laugh.mp3` was converted by the repository author from a local audio
+file supplied by the user (originally a WMA/ASF file named
+`纯音乐 - 奶龙大笑.flac`). It is likewise **not** covered by the MIT license.
+
+## Trademarks
+
+"DeepSeek" and "Codex" are trademarks of their respective owners. This project
+is an unofficial community plugin and is not affiliated with or endorsed by
+either.

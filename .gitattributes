@@ -1,0 +1,7 @@
+# Normalize line endings so Windows checkouts do not rewrite the repo.
+* text=auto eol=lf
+
+# Binary media must never be converted or diffed as text.
+*.webp binary
+*.mp3 binary
+*.png binary

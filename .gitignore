@@ -1,0 +1,23 @@
+# Dependency / build noise
+node_modules/
+.pnpm-store/
+*.tsbuildinfo
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs / scratch
+*.log
+npm-debug.log*
+pnpm-debug.log*
+.tmp/
+tmp/
+
+# Local overrides you may not want to publish
+*.local.*
+.env
+.env.*

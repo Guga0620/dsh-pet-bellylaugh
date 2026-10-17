@@ -1,0 +1,6 @@
+# dsh-pet-bellylaugh bundle patch: inserts its Host + Client entry into the web plugin roster.
+# Install it with `dsh plugin --profile <name> add <path>`, or by adding this same entry to the
+# profile's own cordis.patch.yml.
+- insert:
+    - id: ui-pet-bellylaugh
+      name: 'dsh-pet-bellylaugh'
