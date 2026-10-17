@@ -83,6 +83,7 @@ function stateFor(mode) {
     errorSeq: 0,
     errorAgeMs: null,
     laugh: null,
+    pet: { id: "bellylaugh", name: "奶龙", columns: 8, rows: 9, v: 1 },
     clientMountedAt: null,
     clientInfo: null,
     updatedAt: Date.now(),
@@ -91,6 +92,10 @@ function stateFor(mode) {
   if (mode === "tool") return { ...base, busy: true, running: 1, toolSeq: polls > 1 ? 4 : 3, lastTool: "grep", toolAgeMs: 120 };
   if (mode === "done") return { ...base, doneSeq: polls > 1 ? 1 : 0, doneAgeMs: polls > 1 ? 200 : null };
   if (mode === "error") return { ...base, errorSeq: polls > 1 ? 1 : 0, errorAgeMs: polls > 1 ? 200 : null };
+  if (mode === "v2") {
+    // An 8x11 pack: proves the grid comes from the Host, not from a constant.
+    return { ...base, pet: { id: "gugu", name: "咕咕嘎嘎", columns: 8, rows: 11, v: 2 } };
+  }
   return base;
 }
 
@@ -125,8 +130,8 @@ http
       return;
     }
 
-    if (p === "/pet-bellylaugh/audio" || p.startsWith("/pet-bellylaugh/assets/")) {
-      const name = p === "/pet-bellylaugh/audio" ? "laugh.mp3" : p.slice("/pet-bellylaugh/assets/".length);
+    if (p === "/pet-bellylaugh/audio" || p === "/pet-bellylaugh/sheet" || p.startsWith("/pet-bellylaugh/assets/")) {
+      const name = p === "/pet-bellylaugh/audio" ? "laugh.mp3" : p === "/pet-bellylaugh/sheet" ? "spritesheet.webp" : p.slice("/pet-bellylaugh/assets/".length);
       try {
         const body = await readFile(path.join(ROOT, "assets", name));
         const type = name.endsWith(".webp") ? "image/webp" : "audio/mpeg";

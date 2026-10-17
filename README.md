@@ -27,9 +27,12 @@ dsh-pet-bellylaugh/
 ├─ cordis.patch.yml      # bundle 自带的 loader 插入项
 ├─ lib/host.js           # 宿主半：监听 Agent 事件 + 提供 HTTP 接口
 ├─ lib/client.js         # 浏览器半：渲染桌宠、播动画、放声音
-├─ assets/spritesheet.webp
+├─ assets/spritesheet.webp   # 默认宠物（8×9）
+├─ assets/pet.json           # 默认宠物的名字
 ├─ assets/laugh.mp3
+├─ assets/pets/<名字>/       # 可选：放别的宠物，优先于默认那只
 ├─ preview/*.png
+├─ tools/preview.mjs         # 假宿主预览，不装 DSH 也能看
 ├─ LICENSE               # MIT（仅覆盖代码）
 └─ NOTICE                 # 素材版权说明
 ```
@@ -112,8 +115,64 @@ node tools/preview.mjs 18999
 > ⚠️ **WMA / ASF 不行**。Chromium 解不了这两个容器，得先转成上面任一格式再丢进来。
 > 本项目自带的 `laugh.mp3` 就是从这样一个"WMA 套 .flac 后缀"的文件转出来的。
 
-同理，**换形象**就是覆盖 `assets\spritesheet.webp`（刷新页面生效）；排布必须还是
-8 列 × 9 行、单帧 192×208，行序见上面的动作映射表。
+## 怎么换宠物
+
+跟音频一个待遇 —— **不用改代码**。两种方式：
+
+**A. 换掉默认那只**：直接覆盖 `assets\spritesheet.webp`（刷新页面生效）。
+
+**B. 单放一个宠物目录**（推荐，可以和默认那只共存）：
+
+```
+assets/
+├─ pet.json                # 默认宠物的名字，可留
+├─ spritesheet.webp        # 默认那只
+├─ laugh.mp3
+└─ pets/
+   └─ doubao/              # 目录名随意
+      ├─ pet.json          # 可选：{"displayName": "豆包"}
+      └─ spritesheet.webp
+```
+
+规则：
+
+1. 只要 `assets\pets\` 下有宠物，就**优先用它**（多个时取修改时间最新的那个）。
+   这条比"按时间取最新"更明确 —— Windows 的普通复制会保留源文件 mtime，
+   光比时间会让"刚拷进来的宠物反而不生效"。
+2. 网格**列数/行数从图片实际尺寸算**：`宽 ÷ 192`、`高 ÷ 208`。
+   所以 8×9（1536×1872）和 8×11（1536×2288）两种 Codex 素材包都能直接用，
+   不会把 11 行压成 9 行。
+3. 名字取同目录 `pet.json` 的 `displayName`，没有就退回目录名 —— 会用在提示气泡和 tooltip 上。
+4. 宿主每 1.5 秒重扫，`/state.pet` 里带 `id / name / columns / rows / v`，版本一变浏览器就换图，
+   连刷新都不必。
+
+> 你本机 `~/.codex/pets/` 里那 8 只里，`gugu-gaga` 和 `nai-long-2` 是 8×11 的 v2 素材包，
+> 其余是 8×9；把整个文件夹（`pet.json` + `spritesheet.webp`）拷进 `assets\pets\<名字>\` 就能换过去。
+
+行序沿用同一套 Codex 约定（第 0 行待机、第 1/2 行跑、第 5 行大笑、第 7 行拍肚子、第 8 行招手），
+所以换任何一只 Codex 宠物，动作映射都成立。
+
+## 怎么卸载
+
+两种，从轻到重：
+
+**① 临时关掉**（保留文件，随时能开回来）
+
+```yaml
+# profile 的 cordis.patch.yml 里，给这条加上 disabled
+- insert:
+    - id: ui-pet-bellylaugh
+      name: 'dsh-pet-bellylaugh'
+      disabled: true
+```
+
+配置**热重载**，改完刷新页面就没了；想开回来把 `disabled` 删掉即可。
+DSH 的「设置 → 插件」页面里也有同样的开关。
+
+**② 彻底移除**：删掉 `cordis.patch.yml` 里那条 `insert` 项，再删掉
+`<profile>/node_modules/dsh-pet-bellylaugh`（如果是 junction，删链接即可，源目录还在），刷新页面。
+
+> 只想让它安静但不想消失？悬停宠物，点右上角出现的 🔇 图标静音即可（记在 localStorage）。
 
 拖拽用 `pointerdown/move/up` + `setPointerCapture`，位移小于 4px 视为点击，所以"点一下"和"拖一下"不会互相打架。
 位置按"距右下角的距离"存储，窗口缩放时会自动夹回可视区域内。
@@ -134,9 +193,10 @@ node tools/preview.mjs 18999
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/pet-bellylaugh/state` | 当前快照：`busy`、`running`、`lastTool`、`toolSeq`、`doneSeq`、`errorSeq`、`clientMountedAt`、`laugh{file,v,size}` … |
+| GET | `/pet-bellylaugh/state` | 当前快照：`busy`、`running`、`lastTool`、`toolSeq`、`doneSeq`、`errorSeq`、`clientMountedAt`、`laugh{file,v,size}`、`pet{id,name,columns,rows,v}` … |
+| GET | `/pet-bellylaugh/sheet` | **当前生效的精灵图**（由目录扫描决定），带版本号 ETag |
 | GET | `/pet-bellylaugh/audio` | **当前生效的笑声**（由目录扫描决定），带版本号 ETag |
-| GET | `/pet-bellylaugh/assets/<name>` | `assets/` 里白名单扩展名的文件（精灵图等），带 mtime ETag |
+| GET | `/pet-bellylaugh/assets/<name>` | `assets/` 里白名单扩展名的文件，带 mtime ETag |
 | POST | `/pet-bellylaugh/report` | 浏览器端挂载上报，纯诊断 |
 
 文件名只接受纯文件名（拒绝 `/`、`\`、`..`），扩展名必须在白名单里，所以请求路径拼不进文件系统。
