@@ -1,47 +1,50 @@
 {
-  "name": "dsh-pet-bellylaugh",
-  "version": "0.1.0",
-  "description": "奶龙（bellylaugh）桌宠 DSH 插件：常驻 Web 界面右下角，跟随 Agent 工作状态切换动作，任务完成时捧腹大笑。",
-  "keywords": [
-    "dsh",
-    "dsh-plugin",
-    "deepseek-harness",
-    "desktop-pet",
-    "bellylaugh",
-    "spritesheet"
-  ],
-  "type": "module",
-  "main": "lib/host.js",
-  "exports": {
-    ".": "./lib/host.js",
-    "./client": "./lib/client.js",
-    "./package.json": "./package.json"
-  },
-  "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    },
-    "client": {
-      "inject": [],
-      "platform": "web"
-    }
-  },
-  "files": [
-    "lib",
-    "assets",
-    "cordis.patch.yml",
-    "README.md",
-    "LICENSE",
-    "NOTICE"
-  ],
-  "license": "MIT",
-  "author": "Guga0620",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/Guga0620/dsh-pet-bellylaugh.git"
-  },
-  "homepage": "https://github.com/Guga0620/dsh-pet-bellylaugh#readme",
-  "bugs": {
-    "url": "https://github.com/Guga0620/dsh-pet-bellylaugh/issues"
-  }
+    "name":  "dsh-pet-bellylaugh",
+    "version":  "0.1.0",
+    "description":  "奶龙（bellylaugh）桌宠 DSH 插件：常驻 Web 界面右下角，跟随 Agent 工作状态切换动作，任务完成时捧腹大笑。",
+    "keywords":  [
+                     "dsh",
+                     "dsh-plugin",
+                     "deepseek-harness",
+                     "desktop-pet",
+                     "bellylaugh",
+                     "spritesheet"
+                 ],
+    "type":  "module",
+    "main":  "lib/host.js",
+    "exports":  {
+                    ".":  "./lib/host.js",
+                    "./client":  "./lib/client.js",
+                    "./package.json":  "./package.json"
+                },
+    "dsh":  {
+                "bundle":  {
+                               "patch":  "./cordis.patch.yml"
+                           },
+                "client":  {
+                               "inject":  [
+
+                                          ],
+                               "platform":  "web"
+                           }
+            },
+    "files":  [
+                  "lib",
+                  "assets",
+                  "cordis.patch.yml",
+                  "README.md",
+                  "LICENSE",
+                  "NOTICE",
+                  "standalone"
+              ],
+    "license":  "MIT",
+    "author":  "Guga0620",
+    "repository":  {
+                       "type":  "git",
+                       "url":  "git+https://github.com/Guga0620/dsh-pet-bellylaugh.git"
+                   },
+    "homepage":  "https://github.com/Guga0620/dsh-pet-bellylaugh#readme",
+    "bugs":  {
+                 "url":  "https://github.com/Guga0620/dsh-pet-bellylaugh/issues"
+             }
 }

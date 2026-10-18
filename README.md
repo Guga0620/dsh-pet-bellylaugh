@@ -31,6 +31,11 @@ dsh-pet-bellylaugh/
 ├─ assets/pet.json           # 默认宠物的名字
 ├─ assets/laugh.mp3
 ├─ assets/pets/<名字>/       # 可选：放别的宠物，优先于默认那只
+├─ standalone/               # 独立版：不依赖 DSH 的桌面窗口
+│  ├─ pet.ps1                #   WPF 主程序
+│  ├─ launch.vbs             #   双击启动
+│  ├─ spritesheet.png        #   精灵图（WPF 不解 WebP）
+│  └─ laugh.mp3
 ├─ preview/*.png
 ├─ tools/preview.mjs         # 假宿主预览，不装 DSH 也能看
 ├─ LICENSE               # MIT（仅覆盖代码）
@@ -39,6 +44,36 @@ dsh-pet-bellylaugh/
 
 两半的分工刻意做得很薄：宿主只负责把"现在忙不忙 / 刚干完什么"变成一个 JSON，
 浏览器端每 500ms 拉一次。没有 RPC、没有 SSE、没有 WebSocket，出问题一眼就能看出来。
+
+## 独立版（不依赖 DSH）
+
+`standalone/` 是一个 **WPF 小窗口**：无边框、逐像素透明、置顶、不占任务栏、可拖动。
+DSH 关掉 —— 甚至卸载 —— 它照样待在桌面上。
+
+```powershell
+# 双击
+standalone\launch.vbs
+
+# 或者命令行（能看到报错）
+powershell -ExecutionPolicy Bypass -File standalone\pet.ps1
+```
+
+| 关注点 | 行为 |
+| --- | --- |
+| 连接 DSH | 自动发现：按进程名 `DeepSeek*` 找它的监听端口，再探 `/pet-bellylaugh/state` |
+| 状态同步 | 和页面里那只一样：忙 → 拍肚子、工具跑完 → 小跑、任务完成 → 大笑 + 声音、出错 → 抖动 |
+| DSH 没开 | 自己待机（呼吸 / 眨眼），每 10 秒重试一次，DSH 起来后自动接上 |
+| 拖动 | 直接拖窗口，松手把坐标存进 `standalone/.position` |
+| 点击 | 和页面版一样的连击递进（招手 → 拍肚子 → 怕痒 → 大笑出声 → 不高兴） |
+| 右键 | 菜单：回到右下角 / 退出 |
+| 关闭 | 右键 → 退出（想关掉就靠它，别去任务管理器） |
+
+**两只不会打架**：独立版每 5 秒往宿主打一次心跳（`POST /pet-bellylaugh/standalone`），
+页面里那只一旦看到心跳就自动让位隐藏；关掉独立版、心跳断了，页面那只再回来。
+这个互斥需要宿主支持该接口 —— 升级后**重启一次 DSH** 才生效，在那之前两只都会显示。
+
+> 改 `pet.ps1` 时注意：文件必须存成 **UTF-8 with BOM**。Windows PowerShell 5.1 会把
+> 无 BOM 的 UTF-8 当 GBK 读，中文全部乱码、脚本直接语法报错。
 
 ## 安装
 
