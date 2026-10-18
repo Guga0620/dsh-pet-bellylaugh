@@ -21,6 +21,3 @@ tmp/
 *.local.*
 .env
 .env.*
-
-# 独立版记住的窗口位置
-standalone/.position

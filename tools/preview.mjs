@@ -92,10 +92,6 @@ function stateFor(mode) {
   if (mode === "tool") return { ...base, busy: true, running: 1, toolSeq: polls > 1 ? 4 : 3, lastTool: "grep", toolAgeMs: 120 };
   if (mode === "done") return { ...base, doneSeq: polls > 1 ? 1 : 0, doneAgeMs: polls > 1 ? 200 : null };
   if (mode === "error") return { ...base, errorSeq: polls > 1 ? 1 : 0, errorAgeMs: polls > 1 ? 200 : null };
-  if (mode === "standalone") {
-    // A live heartbeat from the standalone WPF pet: the in-page pet must step aside.
-    return { ...base, standaloneAt: Date.now() };
-  }
   if (mode === "v2") {
     // An 8x11 pack: proves the grid comes from the Host, not from a constant.
     return { ...base, pet: { id: "gugu", name: "咕咕嘎嘎", columns: 8, rows: 11, v: 2 } };
