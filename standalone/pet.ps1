@@ -132,6 +132,7 @@ $sprite.Cursor = [System.Windows.Input.Cursors]::Hand
 $shakeTransform = New-Object System.Windows.Media.TranslateTransform
 $sprite.RenderTransform = $shakeTransform
 $script:shakeTransform = $shakeTransform
+$script:spriteRef = $sprite
 $root.Children.Add($sprite) | Out-Null
 
 # 悬停出现的小喇叭（与页面版同款；隐藏/退出走右键菜单）
@@ -144,13 +145,60 @@ $muteBadge.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Right
 $muteBadge.VerticalAlignment = [System.Windows.VerticalAlignment]::Top
 $muteBadge.Margin = New-Object System.Windows.Thickness 0, 14, -2, 0
 $muteBadge.Cursor = [System.Windows.Input.Cursors]::Hand
-$muteBadge.Opacity = 0
+$muteBadge.Opacity = 0.02
 $muteText = New-Object System.Windows.Controls.TextBlock
 $muteText.FontSize = 11
 $muteText.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Center
 $muteText.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
 $muteBadge.Child = $muteText
 $root.Children.Add($muteBadge) | Out-Null
+
+# 隐藏按钮：黄底小圆，字取宠物名末字（页面版同款）
+$hideBadge = New-Object System.Windows.Controls.Border
+$hideBadge.Width = 22
+$hideBadge.Height = 22
+$hideBadge.CornerRadius = New-Object System.Windows.CornerRadius 11
+$hideBadge.Background = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.Color]::FromRgb(255, 215, 94))
+$hideBadge.BorderBrush = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.Color]::FromArgb(130, 92, 62, 12))
+$hideBadge.BorderThickness = New-Object System.Windows.Thickness 1
+$hideBadge.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Right
+$hideBadge.VerticalAlignment = [System.Windows.VerticalAlignment]::Top
+$hideBadge.Margin = New-Object System.Windows.Thickness 0, 14, 24, 0
+$hideBadge.Cursor = [System.Windows.Input.Cursors]::Hand
+$hideBadge.Opacity = 0.02
+$hideText = New-Object System.Windows.Controls.TextBlock
+$hideText.FontSize = 11
+$hideText.FontWeight = [System.Windows.FontWeights]::Bold
+$hideText.Foreground = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.Color]::FromRgb(90, 63, 15))
+$hideText.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Center
+$hideText.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+$hideBadge.Child = $hideText
+$root.Children.Add($hideBadge) | Out-Null
+$script:hideBadge = $hideBadge
+$script:hideText = $hideText
+
+# 隐藏后原地留下的恢复小圆，字取宠物名首字
+$chip = New-Object System.Windows.Controls.Border
+$chip.Width = 26
+$chip.Height = 26
+$chip.CornerRadius = New-Object System.Windows.CornerRadius 13
+$chip.Background = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.Color]::FromRgb(255, 215, 94))
+$chip.BorderBrush = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.Color]::FromArgb(140, 92, 62, 12))
+$chip.BorderThickness = New-Object System.Windows.Thickness 1.5
+$chip.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Center
+$chip.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+$chip.Cursor = [System.Windows.Input.Cursors]::Hand
+$chip.Visibility = [System.Windows.Visibility]::Collapsed
+$chipText = New-Object System.Windows.Controls.TextBlock
+$chipText.FontSize = 13
+$chipText.FontWeight = [System.Windows.FontWeights]::Bold
+$chipText.Foreground = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.Color]::FromRgb(90, 63, 15))
+$chipText.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Center
+$chipText.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+$chip.Child = $chipText
+$root.Children.Add($chip) | Out-Null
+$script:chip = $chip
+$script:chipText = $chipText
 $script:muteBadge = $muteBadge
 $script:muteText = $muteText
 
@@ -228,7 +276,14 @@ $script:dragMoved = $false
 $script:dragOrigin = $null
 $script:longPressed = $false
 $script:idleLastTalk = [DateTime]::Now
+$script:lastClamp = [DateTime]::MinValue
 $script:itemMute = $null
+$script:petName = '奶龙'
+$script:hidden = $false
+$script:hiddenAt = [DateTime]::MinValue
+$script:petRect = $null
+$script:chipHover = $false
+$script:chipSize = 26
 
 $shared = [hashtable]::Synchronized(@{ state = $null; url = $null })
 
@@ -351,7 +406,7 @@ function Add-Anim([string]$name, [int]$loops, [bool]$replace = $false) {
 }
 
 function Play-Laugh([int]$ms = 1800) {
-  if ($script:muted) { return }
+  if ($script:muted -or $script:hidden) { return }
   try {
     $script:player.Position = [TimeSpan]::Zero
     $script:player.Play()
@@ -377,6 +432,55 @@ function Update-Shake {
 
 function Base-Anim {
   if ($script:busy) { return 'pat' } else { return 'idle' }
+}
+
+function Sync-Badges {
+  $chars = @($script:petName.ToCharArray() | Where-Object { -not [char]::IsWhiteSpace($_) })
+  $first = if ($chars.Count -gt 0) { [string]$chars[0] } else { '宠' }
+  $last = if ($chars.Count -gt 0) { [string]$chars[$chars.Count - 1] } else { $first }
+  $script:chipText.Text = $first
+  $script:hideText.Text = $last
+  $script:chip.ToolTip = "点我让 $($script:petName) 回来"
+  $script:hideBadge.ToolTip = "隐藏 $($script:petName)"
+}
+
+function Set-Hidden([bool]$value) {
+  if ($script:hidden -eq $value) { return }
+  if ($value) {
+    $script:petRect = @{ left = $win.Left; top = $win.Top }
+    $script:hiddenAt = [DateTime]::Now
+    Hide-Bubble
+    $win.Width = $script:chipSize
+    $win.Height = $script:chipSize
+    $win.Left = $script:petRect.left + $winW - $script:chipSize
+    $win.Top = $script:petRect.top + $winH - $script:chipSize
+    $script:spriteRef.Visibility = [System.Windows.Visibility]::Collapsed
+    $script:muteBadge.Visibility = [System.Windows.Visibility]::Collapsed
+    $script:hideBadge.Visibility = [System.Windows.Visibility]::Collapsed
+    $script:chip.Visibility = [System.Windows.Visibility]::Visible
+    $script:chip.Opacity = 1
+  } else {
+    $win.Width = $winW
+    $win.Height = $winH
+    if ($null -ne $script:petRect) {
+      $win.Left = $script:petRect.left
+      $win.Top = $script:petRect.top
+    }
+    $script:spriteRef.Visibility = [System.Windows.Visibility]::Visible
+    $script:muteBadge.Visibility = [System.Windows.Visibility]::Visible
+    $script:hideBadge.Visibility = [System.Windows.Visibility]::Visible
+    $script:chip.Visibility = [System.Windows.Visibility]::Collapsed
+  }
+  $script:hidden = $value
+}
+
+function Update-ChipPulse {
+  if (-not $script:hidden) { return }
+  if ($script:chipHover) { $script:chip.Opacity = 1; return }
+  $elapsed = ([DateTime]::Now - $script:hiddenAt).TotalMilliseconds
+  if ($elapsed -gt 4800) { $script:chip.Opacity = 1; return }
+  $phase = ($elapsed % 1600) / 1600
+  $script:chip.Opacity = 1 - 0.5 * [Math]::Sin($phase * [Math]::PI)
 }
 
 function Sync-MuteBadge {
@@ -438,11 +542,29 @@ $timer.Add_Tick({
     $script:laughing = $false
   }
   Update-Shake
+  Update-ChipPulse
+
+  if (($now - $script:lastClamp).TotalSeconds -ge 2) {
+    $script:lastClamp = $now
+    if (-not $script:hidden) {
+      $wa = [System.Windows.SystemParameters]::WorkArea
+      $offscreen = ($win.Left + $win.Width -lt $wa.Left + 24) -or ($win.Left -gt $wa.Right - 24) -or
+                   ($win.Top + $win.Height -lt $wa.Top + 24) -or ($win.Top -gt $wa.Bottom - 24)
+      if ($offscreen) {
+        $win.Left = $wa.Right - $win.Width - 24
+        $win.Top = $wa.Bottom - $win.Height - 24
+      }
+    }
+  }
 
   # 后台状态
   $state = $shared.state
   if ($state -ne $null) {
     $script:busy = [bool]$state.busy
+    if ($null -ne $state.pet -and $null -ne $state.pet.name) {
+      $nm = [string]$state.pet.name
+      if ($nm -ne '' -and $nm -ne $script:petName) { $script:petName = $nm; Sync-Badges }
+    }
     $doneSeq = [int]$state.doneSeq
     $toolSeq = [int]$state.toolSeq
     $errorSeq = [int]$state.errorSeq
@@ -599,8 +721,24 @@ $sprite.Add_MouseLeftButtonUp({
   Invoke-Click
 })
 
-$win.Add_MouseEnter({ $script:muteBadge.Opacity = 1 })
-$win.Add_MouseLeave({ if ($script:dragging) { return }; $script:muteBadge.Opacity = 0 })
+$win.Add_MouseEnter({
+  if ($script:hidden) { return }
+  $script:muteBadge.Opacity = 1
+  $script:hideBadge.Opacity = 1
+})
+$hideBadge.Add_MouseLeftButtonDown({
+  param($sender, $e)
+  Set-Hidden $true
+  $e.Handled = $true
+})
+$chip.Add_MouseLeftButtonDown({
+  param($sender, $e)
+  Set-Hidden $false
+  $e.Handled = $true
+})
+$chip.Add_MouseEnter({ $script:chipHover = $true; $script:chip.Opacity = 1 })
+$chip.Add_MouseLeave({ $script:chipHover = $false })
+$win.Add_MouseLeave({ if ($script:dragging) { return }; $script:muteBadge.Opacity = 0.02; $script:hideBadge.Opacity = 0.02 })
 $muteBadge.Add_MouseLeftButtonDown({
   param($sender, $e)
   Toggle-Mute
@@ -623,12 +761,17 @@ $itemReset.Add_Click({
 $itemQuit = New-Object System.Windows.Controls.MenuItem
 $itemQuit.Header = '退出'
 $itemQuit.Add_Click({ $win.Close() })
+$itemToggle = New-Object System.Windows.Controls.MenuItem
+$itemToggle.Add_Click({ Set-Hidden (-not $script:hidden) })
+$menu.Add_Opened({ $itemToggle.Header = if ($script:hidden) { '显示' } else { '隐藏' } })
+$null = $menu.Items.Add($itemToggle)
 $null = $menu.Items.Add($script:itemMute)
 $null = $menu.Items.Add($itemReset)
 $null = $menu.Items.Add((New-Object System.Windows.Controls.Separator))
 $null = $menu.Items.Add($itemQuit)
-$sprite.ContextMenu = $menu
+$root.ContextMenu = $menu
 Sync-MuteBadge
+Sync-Badges
 
 $win.Add_Closed({
   try { $timer.Stop() } catch { }
