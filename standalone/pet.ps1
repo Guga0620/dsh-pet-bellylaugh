@@ -1,5 +1,8 @@
 ﻿# ============================================================================
-# dsh-pet-bellylaugh —— 独立版桌宠（不依赖 DSH 的窗口能否存在）
+# dsh-pet-bellylaugh —— 独立版桌宠（不依赖 DSH 是否运行）
+#
+# 与页面版行为对齐：同一套动画表、同一个点击递进、长按抚摸、拖动跑动、
+# 出错抖动、空闲搭话、带尾巴的气泡、静音开关。
 #
 # 一个 WPF 无边框窗口：逐像素透明、置顶、不占任务栏、可拖动。
 # DSH 在跑时自动连它的 /pet-bellylaugh/state（端口自动发现），
@@ -7,6 +10,9 @@
 #
 # 用法：双击 standalone\launch.vbs，或
 #       powershell -ExecutionPolicy Bypass -File standalone\pet.ps1
+#
+# 注意：本文件必须保存为 UTF-8 with BOM —— Windows PowerShell 5.1 会把
+#       无 BOM 的 UTF-8 当 GBK 读，中文全乱、脚本直接语法报错。
 # ============================================================================
 param(
   [int]$Cell = 156,                     # 显示时单帧宽度（高度按 12:13 推导）
@@ -18,13 +24,17 @@ Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
 
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class PetNative {
+  [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
+  [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
+  [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+}
+'@
 # 不声明 DPI 感知的话，125% 缩放下整窗会被系统拉伸，画面发虚。
-try {
-  Add-Type -Namespace Pet -Name Dpi -MemberDefinition '
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
-    public static extern bool SetProcessDPIAware();' | Out-Null
-  [void][Pet.Dpi]::SetProcessDPIAware()
-} catch { }
+try { [void][PetNative]::SetProcessDPIAware() } catch { }
 
 $here = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $sheetPath = Join-Path $here 'spritesheet.png'
@@ -44,11 +54,10 @@ $cols = 8
 $rows = 9
 $cellW = [double]$sheet.PixelWidth / $cols
 $cellH = [double]$sheet.PixelHeight / $rows
-$scale = $Cell / $cellW
 $winW = [int]$Cell
-$winH = [int]($cellH * $scale)
+$winH = [int]($cellH * ($Cell / $cellW))
 
-# --- 动画表（与浏览器端一致：行号 + 帧序列 + fps）------------------------------
+# --- 动画表（与 lib/client.js 完全一致）----------------------------------------
 $script:Anims = @{
   idle   = @{ row = 0; fps = 4.5; frames = @(0,2,3,5, 0,2,3,5, 1, 0,2,3,5, 0,2,3,5, 0,2,3,5, 4, 0,2,3,5, 0,2,3,5) }
   runR   = @{ row = 1; fps = 13;  frames = @(0,1,2,3,4,5,6,7) }
@@ -61,7 +70,20 @@ $script:Anims = @{
   wave   = @{ row = 8; fps = 9;   frames = @(0,1,2,3,4,5) }
 }
 
-# --- 窗口 ---------------------------------------------------------------------
+# --- 台词（与页面版同一套）------------------------------------------------------
+$script:Lines = @{
+  greet   = @('嗨～', '在呢在呢', '有事吗？', '戳我干嘛～')
+  happy   = @('嘿嘿～', '舒服～', '再来一下', '咕噜咕噜')
+  annoyed = @('别戳啦！', '晕了晕了', '再戳要生气咯', '住手住手')
+  pet     = @('❤️ 呼噜呼噜…', '❤️ 好舒服…', '❤️ 再摸摸嘛', '❤️ 嘿嘿…')
+  idle    = @('发呆中…', '要不要歇会儿？', '我在这儿呢', '肚子有点饿了', '等你很久啦')
+  busy    = @('忙着呢，别打扰～', '加油加油！', '我帮你盯着', '快好啦快好啦')
+}
+$script:LaughText = '哈哈哈哈哈哈哈哈'
+
+function Pick { param([object[]]$list) $list[(Get-Random -Maximum $list.Count)] }
+
+# --- 宠物窗口 -------------------------------------------------------------------
 $win = New-Object System.Windows.Window
 $win.WindowStyle = [System.Windows.WindowStyle]::None
 $win.AllowsTransparency = $true
@@ -74,7 +96,6 @@ $win.Height = $winH
 $win.WindowStartupLocation = [System.Windows.WindowStartupLocation]::Manual
 $win.Title = 'dsh-pet-bellylaugh'
 
-# 记住上次位置：.position 里是 "Left,Top"
 $work = [System.Windows.SystemParameters]::WorkArea
 $left = $work.Right - $winW - 24
 $top = $work.Bottom - $winH - 24
@@ -85,7 +106,6 @@ if (Test-Path $posPath) {
     $top = [double]$parts[1]
   } catch { }
 }
-# 防止上次的坐标落在已拔掉的显示器上
 if ($left -lt $work.Left -or $left -gt $work.Right - 40 -or $top -lt $work.Top -or $top -gt $work.Bottom - 40) {
   $left = $work.Right - $winW - 24
   $top = $work.Bottom - $winH - 24
@@ -93,7 +113,7 @@ if ($left -lt $work.Left -or $left -gt $work.Right - 40 -or $top -lt $work.Top -
 $win.Left = $left
 $win.Top = $top
 
-# --- 画面 ---------------------------------------------------------------------
+# 画面：矩形 + ImageBrush，用 Viewbox 选帧；RenderTransform 留给抖动
 $root = New-Object System.Windows.Controls.Grid
 $root.Background = [System.Windows.Media.Brushes]::Transparent
 
@@ -103,34 +123,81 @@ $brush.ViewboxUnits = [System.Windows.Media.BrushMappingMode]::Absolute
 $brush.Viewbox = New-Object System.Windows.Rect 0, 0, $cellW, $cellH
 $brush.Stretch = [System.Windows.Media.Stretch]::Fill
 $script:brush = $brush
+
 $sprite = New-Object System.Windows.Shapes.Rectangle
 $sprite.Fill = $brush
 $sprite.Width = $winW
 $sprite.Height = $winH
 $sprite.Cursor = [System.Windows.Input.Cursors]::Hand
+$shakeTransform = New-Object System.Windows.Media.TranslateTransform
+$sprite.RenderTransform = $shakeTransform
+$script:shakeTransform = $shakeTransform
 $root.Children.Add($sprite) | Out-Null
 
-# 气泡
-$bubble = New-Object System.Windows.Controls.Border
-$bubble.Background = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.Color]::FromRgb(255, 247, 226))
-$bubble.BorderBrush = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.Color]::FromRgb(214, 190, 140))
-$bubble.BorderThickness = New-Object System.Windows.Thickness 1
-$bubble.CornerRadius = New-Object System.Windows.CornerRadius 12
-$bubble.Padding = New-Object System.Windows.Thickness 8, 4, 8, 4
-$bubble.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Right
-$bubble.VerticalAlignment = [System.Windows.VerticalAlignment]::Top
-$bubble.Margin = New-Object System.Windows.Thickness 0, -30, 0, 0
-$bubble.Visibility = [System.Windows.Visibility]::Collapsed
-$bubbleText = New-Object System.Windows.Controls.TextBlock
-$bubbleText.FontSize = 13
-$bubbleText.FontWeight = [System.Windows.FontWeights]::SemiBold
-$bubbleText.Foreground = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.Color]::FromRgb(90, 63, 15))
-$bubble.Child = $bubbleText
-$root.Children.Add($bubble) | Out-Null
-$script:bubble = $bubble
-$script:bubbleText = $bubbleText
+# 悬停出现的小喇叭（与页面版同款；隐藏/退出走右键菜单）
+$muteBadge = New-Object System.Windows.Controls.Border
+$muteBadge.Width = 22
+$muteBadge.Height = 22
+$muteBadge.CornerRadius = New-Object System.Windows.CornerRadius 11
+$muteBadge.Background = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.Color]::FromArgb(230, 255, 255, 255))
+$muteBadge.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Right
+$muteBadge.VerticalAlignment = [System.Windows.VerticalAlignment]::Top
+$muteBadge.Margin = New-Object System.Windows.Thickness 0, 14, -2, 0
+$muteBadge.Cursor = [System.Windows.Input.Cursors]::Hand
+$muteBadge.Opacity = 0
+$muteText = New-Object System.Windows.Controls.TextBlock
+$muteText.FontSize = 11
+$muteText.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Center
+$muteText.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+$muteBadge.Child = $muteText
+$root.Children.Add($muteBadge) | Out-Null
+$script:muteBadge = $muteBadge
+$script:muteText = $muteText
 
 $win.Content = $root
+
+# --- 气泡窗口（独立窗口才能盖在宠物头顶，又不挡住别处）-----------------------------
+$bubbleWin = New-Object System.Windows.Window
+$bubbleWin.WindowStyle = [System.Windows.WindowStyle]::None
+$bubbleWin.AllowsTransparency = $true
+$bubbleWin.Background = [System.Windows.Media.Brushes]::Transparent
+$bubbleWin.Topmost = $true
+$bubbleWin.ShowInTaskbar = $false
+$bubbleWin.ResizeMode = [System.Windows.ResizeMode]::NoResize
+$bubbleWin.SizeToContent = [System.Windows.SizeToContent]::WidthAndHeight
+$bubbleWin.IsHitTestVisible = $false
+$bubbleWin.ShowActivated = $false
+
+$bubbleGrid = New-Object System.Windows.Controls.Grid
+$bubbleBorder = New-Object System.Windows.Controls.Border
+$bubbleBorder.Background = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.Color]::FromRgb(255, 247, 226))
+$bubbleBorder.BorderBrush = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.Color]::FromRgb(232, 217, 184))
+$bubbleBorder.BorderThickness = New-Object System.Windows.Thickness 1
+$bubbleBorder.CornerRadius = New-Object System.Windows.CornerRadius 13
+$bubbleBorder.Padding = New-Object System.Windows.Thickness 11, 5, 11, 5
+$bubbleText = New-Object System.Windows.Controls.TextBlock
+$bubbleText.FontSize = 12.5
+$bubbleText.FontWeight = [System.Windows.FontWeights]::SemiBold
+$bubbleText.Foreground = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.Color]::FromRgb(90, 63, 15))
+$bubbleText.TextWrapping = [System.Windows.TextWrapping]::NoWrap
+$bubbleBorder.Child = $bubbleText
+$bubbleGrid.Children.Add($bubbleBorder) | Out-Null
+
+# 尾巴：右下角一个旋转 45° 的小方块
+$tail = New-Object System.Windows.Shapes.Rectangle
+$tail.Width = 9
+$tail.Height = 9
+$tail.Fill = $bubbleBorder.Background
+$tail.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Right
+$tail.VerticalAlignment = [System.Windows.VerticalAlignment]::Bottom
+$tail.Margin = New-Object System.Windows.Thickness 0, 0, 24, -4
+$tail.RenderTransformOrigin = New-Object System.Windows.Point 0.5, 0.5
+$tail.RenderTransform = New-Object System.Windows.Media.RotateTransform 45
+$bubbleGrid.Children.Add($tail) | Out-Null
+
+$bubbleWin.Content = $bubbleGrid
+$script:bubbleWin = $bubbleWin
+$script:bubbleText = $bubbleText
 
 # --- 音频 ---------------------------------------------------------------------
 $player = New-Object System.Windows.Media.MediaPlayer
@@ -138,10 +205,8 @@ $player.Volume = 0.85
 if (Test-Path $laughPath) { $player.Open([Uri]$laughPath) }
 $script:player = $player
 
-function Pick { param([object[]]$list) $list[(Get-Random -Maximum $list.Count)] }
-
 # --- 状态 ---------------------------------------------------------------------
-$script:queue = New-Object System.Collections.ArrayList   # @{name; loops}
+$script:queue = New-Object System.Collections.ArrayList
 $script:animName = 'idle'
 $script:frameIndex = 0
 $script:frameAcc = 0.0
@@ -154,6 +219,16 @@ $script:clickStreak = 0
 $script:lastClick = [DateTime]::MinValue
 $script:bubbleUntil = [DateTime]::MinValue
 $script:laughing = $false
+$script:laughUntil = [DateTime]::MinValue
+$script:shakeUntil = [DateTime]::MinValue
+$script:muted = $false
+$script:dragAnim = $null
+$script:dragging = $false
+$script:dragMoved = $false
+$script:dragOrigin = $null
+$script:longPressed = $false
+$script:idleLastTalk = [DateTime]::Now
+$script:itemMute = $null
 
 $shared = [hashtable]::Synchronized(@{ state = $null; url = $null })
 
@@ -193,7 +268,6 @@ $poller = {
   while ($true) {
     try {
       if (-not $url) {
-        # 每 10 秒找一次：DSH 主机是 DeepSeek Harness.exe 的子进程，监听 127.0.0.1
         if (([DateTime]::Now - $lastDiscover).TotalSeconds -ge 10) {
           $lastDiscover = [DateTime]::Now
           $candidatePorts = @()
@@ -216,11 +290,10 @@ $poller = {
       } else {
         $state = Invoke-State $url
         if ($state -eq $null) {
-          $url = $null            # DSH 关了，回到待机，稍后重找
+          $url = $null
           $shared.state = $null
         } else {
           $shared.state = $state
-          # 心跳：让页面里那只自动让位，免得桌面上出现两只奶龙
           if (([DateTime]::Now - $lastBeat).TotalSeconds -ge 5) {
             $lastBeat = [DateTime]::Now
             Send-Beat $url
@@ -244,10 +317,30 @@ $null = $psJob.AddScript($poller.ToString()).AddArgument($shared).AddArgument($D
 $psHandle = $psJob.BeginInvoke()
 
 # --- 工具函数 ------------------------------------------------------------------
+function Update-BubblePosition {
+  if ($script:bubbleWin.Visibility -ne [System.Windows.Visibility]::Visible) { return }
+  $script:bubbleWin.Measure([System.Windows.Size]::new([double]::PositiveInfinity, [double]::PositiveInfinity))
+  $w = $script:bubbleWin.DesiredSize.Width
+  $h = $script:bubbleWin.DesiredSize.Height
+  # 与页面版一致：贴右上、气泡底部压住宠物顶部 12px
+  $script:bubbleWin.Left = $win.Left + $win.Width - $w - 2
+  $bubbleTop = $win.Top - $h + 12
+  # 宠物贴到屏幕上沿时，气泡别跑到屏幕外去
+  if ($bubbleTop -lt 0) { $bubbleTop = 0 }
+  $script:bubbleWin.Top = $bubbleTop
+}
+
 function Show-Bubble([string]$text, [int]$ms = 1800) {
   $script:bubbleText.Text = $text
-  $script:bubble.Visibility = [System.Windows.Visibility]::Visible
+  $script:bubbleWin.Show()
+  Update-BubblePosition
   $script:bubbleUntil = [DateTime]::Now.AddMilliseconds($ms)
+}
+
+function Hide-Bubble {
+  if ($script:bubbleWin.Visibility -eq [System.Windows.Visibility]::Visible) {
+    $script:bubbleWin.Hide()
+  }
 }
 
 function Add-Anim([string]$name, [int]$loops, [bool]$replace = $false) {
@@ -258,6 +351,7 @@ function Add-Anim([string]$name, [int]$loops, [bool]$replace = $false) {
 }
 
 function Play-Laugh([int]$ms = 1800) {
+  if ($script:muted) { return }
   try {
     $script:player.Position = [TimeSpan]::Zero
     $script:player.Play()
@@ -266,8 +360,65 @@ function Play-Laugh([int]$ms = 1800) {
   } catch { }
 }
 
+function Start-Shake { $script:shakeUntil = [DateTime]::Now.AddMilliseconds(550) }
+
+function Update-Shake {
+  $remaining = ($script:shakeUntil - [DateTime]::Now).TotalMilliseconds
+  if ($remaining -le 0) {
+    $script:shakeTransform.X = 0
+    return
+  }
+  $elapsed = 550 - $remaining
+  $steps = @(-6, 6, -4, 4, -2, 2, 0)
+  $index = [int][Math]::Floor($elapsed / 75)
+  if ($index -ge $steps.Count) { $index = $steps.Count - 1 }
+  $script:shakeTransform.X = $steps[$index]
+}
+
 function Base-Anim {
   if ($script:busy) { return 'pat' } else { return 'idle' }
+}
+
+function Sync-MuteBadge {
+  $script:muteText.Text = if ($script:muted) { '🔇' } else { '🔊' }
+  if ($null -ne $script:itemMute) {
+    $script:itemMute.Header = if ($script:muted) { '取消静音' } else { '静音' }
+  }
+}
+
+function Toggle-Mute {
+  $script:muted = -not $script:muted
+  Sync-MuteBadge
+  if ($script:muted) {
+    try { $script:player.Stop() } catch { }
+    $script:laughing = $false
+  }
+}
+
+# --- 点击递进（与页面版一致）----------------------------------------------------
+function Invoke-Click {
+  $now = [DateTime]::Now
+  if (($now - $script:lastClick).TotalMilliseconds -le 1600) { $script:clickStreak += 1 } else { $script:clickStreak = 1 }
+  $script:lastClick = $now
+
+  if ($script:clickStreak -ge 7) {
+    $script:clickStreak = 0
+    Add-Anim 'idleB' 2 $true
+    Start-Shake
+    Show-Bubble (Pick $script:Lines.annoyed) 1800
+    return
+  }
+  switch ($script:clickStreak) {
+    1       { Add-Anim 'wave' 1 $true;   Show-Bubble (Pick $script:Lines.greet) 1800 }
+    2       { Add-Anim 'pat' 2 $true;    Show-Bubble (Pick $script:Lines.happy) 1800 }
+    3       { Add-Anim 'laughA' 2 $true; Show-Bubble '痒～哈哈哈' 1800 }
+    default { Add-Anim 'laughC' 1 $true; Show-Bubble $script:LaughText 1800; Play-Laugh 1800 }
+  }
+}
+
+function Invoke-Pet {
+  Add-Anim 'pat' 3 $true
+  Show-Bubble (Pick $script:Lines.pet) 2200
 }
 
 # --- 主循环 -------------------------------------------------------------------
@@ -279,20 +430,19 @@ $timer.Add_Tick({
   $script:lastTick = $now
   if ($delta -gt 250) { $delta = 250 }
 
-  # 气泡到期
-  if ($script:bubble.Visibility -eq [System.Windows.Visibility]::Visible -and $now -gt $script:bubbleUntil) {
-    $script:bubble.Visibility = [System.Windows.Visibility]::Collapsed
+  if ($script:bubbleWin.Visibility -eq [System.Windows.Visibility]::Visible -and $now -gt $script:bubbleUntil) {
+    Hide-Bubble
   }
   if ($script:laughing -and $now -gt $script:laughUntil) {
     $script:player.Stop()
     $script:laughing = $false
   }
+  Update-Shake
 
-  # 读取后台状态
+  # 后台状态
   $state = $shared.state
   if ($state -ne $null) {
-    $busy = [bool]$state.busy
-    $script:busy = $busy
+    $script:busy = [bool]$state.busy
     $doneSeq = [int]$state.doneSeq
     $toolSeq = [int]$state.toolSeq
     $errorSeq = [int]$state.errorSeq
@@ -303,32 +453,52 @@ $timer.Add_Tick({
       if ($errorSeq -gt $script:seenError) {
         $script:seenError = $errorSeq
         Add-Anim 'idleB' 2 $true
+        Start-Shake
         Show-Bubble '哎呀，好像出错了' 2200
       } elseif ($doneSeq -gt $script:seenDone) {
         $script:seenDone = $doneSeq
         Add-Anim 'laughC' 3 $true
         Add-Anim 'wave' 1
-        Show-Bubble '哈哈哈哈哈哈哈哈' 2600
+        Show-Bubble $script:LaughText 2600
         Play-Laugh 4200
       } elseif ($toolSeq -gt $script:seenTool) {
         $script:seenTool = $toolSeq
-        Add-Anim 'runR' 2
+        if ((Get-Random -Maximum 2) -eq 0) { Add-Anim 'runR' 2 } else { Add-Anim 'runL' 2 }
       }
-      if ($doneSeq -gt $script:seenDone) { $script:seenDone = $doneSeq }
-      if ($toolSeq -gt $script:seenTool) { $script:seenTool = $toolSeq }
-      if ($errorSeq -gt $script:seenError) { $script:seenError = $errorSeq }
+      $script:seenDone = [Math]::Max($script:seenDone, $doneSeq)
+      $script:seenTool = [Math]::Max($script:seenTool, $toolSeq)
+      $script:seenError = [Math]::Max($script:seenError, $errorSeq)
     }
   }
 
-  # 选当前动画
-  $name = if ($script:queue.Count -gt 0) { $script:queue[0].name } else { Base-Anim }
+  # 空闲搭话（页面版同款：45% 演一段、50% 说一句）
+  if (($now - $script:idleLastTalk).TotalSeconds -ge 42) {
+    $script:idleLastTalk = $now
+    if ($script:queue.Count -eq 0 -and -not $script:dragging -and $script:bubbleWin.Visibility -ne [System.Windows.Visibility]::Visible) {
+      if ((Get-Random -Maximum 100) -lt 45) {
+        Add-Anim (Pick @('wave', 'idleB', 'pat')) 1
+      }
+      if ((Get-Random -Maximum 100) -lt 50) {
+        if ($script:busy) { Show-Bubble (Pick $script:Lines.busy) 2600 } else { Show-Bubble (Pick $script:Lines.idle) 2600 }
+      }
+    }
+  }
+
+  # 选动画：拖动优先
+  if ($null -ne $script:dragAnim) {
+    $name = $script:dragAnim
+  } elseif ($script:queue.Count -gt 0) {
+    $name = $script:queue[0].name
+  } else {
+    $name = Base-Anim
+  }
   $spec = $script:Anims[$name]
   if ($null -eq $spec) { $spec = $script:Anims['idle'] }
 
   if ($name -ne $script:animName) {
+    $keepPhase = ($script:animName.StartsWith('run')) -and ($name.StartsWith('run'))
     $script:animName = $name
-    $script:frameIndex = 0
-    $script:frameAcc = 0.0
+    if (-not $keepPhase) { $script:frameIndex = 0; $script:frameAcc = 0.0 }
   }
 
   $script:frameAcc += $delta
@@ -348,42 +518,100 @@ $timer.Add_Tick({
     if ($head.loops -le 0) { $script:queue.RemoveAt(0) }
   }
 
-  # 画帧
   $frame = $spec.frames[$script:frameIndex]
   $script:brush.Viewbox = New-Object System.Windows.Rect ($frame * $cellW), ($spec.row * $cellH), $cellW, $cellH
+
+  if ($script:bubbleWin.Visibility -eq [System.Windows.Visibility]::Visible) { Update-BubblePosition }
 })
 
-# --- 交互 ---------------------------------------------------------------------
+# --- 拖动与点击 -----------------------------------------------------------------
+$holdTimer = New-Object System.Windows.Threading.DispatcherTimer
+$holdTimer.Interval = [TimeSpan]::FromMilliseconds(700)
+$holdTimer.Add_Tick({
+  $holdTimer.Stop()
+  if ($script:dragging -and -not $script:dragMoved) {
+    $script:longPressed = $true
+    Invoke-Pet
+  }
+})
+
+function Get-CursorPosition {
+  $pt = New-Object PetNative+POINT
+  [void][PetNative]::GetCursorPos([ref]$pt)
+  return @{ x = [double]$pt.X; y = [double]$pt.Y }
+}
+
+function Get-DpiScale {
+  try {
+    $dpi = [System.Windows.Media.VisualTreeHelper]::GetDpi($win)
+    if ($dpi.DpiScaleX -gt 0) { return $dpi.DpiScaleX }
+  } catch { }
+  return 1.0
+}
+
 $sprite.Add_MouseLeftButtonDown({
-  $before = @{ left = $win.Left; top = $win.Top }
-  try { $win.DragMove() } catch { }
-  $moved = ([Math]::Abs($win.Left - $before.left) -gt 3) -or ([Math]::Abs($win.Top - $before.top) -gt 3)
-  if ($moved) {
+  param($sender, $e)
+  $script:dragging = $true
+  $script:dragMoved = $false
+  $script:longPressed = $false
+  $script:dragOrigin = @{
+    cursor = (Get-CursorPosition)
+    left   = $win.Left
+    top    = $win.Top
+  }
+  [void]$sprite.CaptureMouse()
+  $holdTimer.Start()
+  $e.Handled = $true
+})
+
+$sprite.Add_MouseMove({
+  param($sender, $e)
+  if (-not $script:dragging) { return }
+  $cursor = Get-CursorPosition
+  $dxRaw = $cursor.x - $script:dragOrigin.cursor.x
+  $dyRaw = $cursor.y - $script:dragOrigin.cursor.y
+  if (-not $script:dragMoved) {
+    if ([Math]::Abs($dxRaw) -lt 5 -and [Math]::Abs($dyRaw) -lt 5) { return }
+    $script:dragMoved = $true
+    $holdTimer.Stop()
+  }
+  $scale = Get-DpiScale
+  $win.Left = $script:dragOrigin.left + ($dxRaw / $scale)
+  $win.Top = $script:dragOrigin.top + ($dyRaw / $scale)
+  if ([Math]::Abs($dxRaw) -ge 1) { $script:dragAnim = if ($dxRaw -gt 0) { 'runR' } else { 'runL' } }
+})
+
+$sprite.Add_MouseLeftButtonUp({
+  param($sender, $e)
+  if (-not $script:dragging) { return }
+  $wasMoved = $script:dragMoved
+  $wasLong = $script:longPressed
+  $script:dragging = $false
+  $script:dragAnim = $null
+  $holdTimer.Stop()
+  [void]$sprite.ReleaseMouseCapture()
+
+  if ($wasMoved) {
     try { Set-Content -LiteralPath $posPath -Value ("{0},{1}" -f [int]$win.Left, [int]$win.Top) -Encoding ascii } catch { }
     return
   }
-  # 没移动 = 点了一下
-  $now = [DateTime]::Now
-  if (($now - $script:lastClick).TotalMilliseconds -le 1600) { $script:clickStreak += 1 } else { $script:clickStreak = 1 }
-  $script:lastClick = $now
-  switch ($script:clickStreak) {
-    1 { Add-Anim 'wave' 1 $true; Show-Bubble (Pick @('嗨～','在呢在呢','有事吗？','戳我干嘛～')) }
-    2 { Add-Anim 'pat' 2 $true;  Show-Bubble (Pick @('嘿嘿～','舒服～','再来一下','咕噜咕噜')) }
-    3 { Add-Anim 'laughA' 2 $true; Show-Bubble '痒～哈哈哈' }
-    4 { Add-Anim 'laughC' 1 $true; Show-Bubble '哈哈哈哈哈哈哈哈'; Play-Laugh 1800 }
-    default {
-      if ($script:clickStreak -ge 7) {
-        $script:clickStreak = 0
-        Add-Anim 'idleB' 2 $true
-        Show-Bubble (Pick @('别戳啦！','晕了晕了','再戳要生气咯','住手住手'))
-      } else {
-        Add-Anim 'laughC' 1 $true; Show-Bubble '哈哈哈哈哈哈哈哈'; Play-Laugh 1800
-      }
-    }
-  }
+  if ($wasLong) { return }   # 长按已经按抚摸处理过了
+  Invoke-Click
 })
 
+$win.Add_MouseEnter({ $script:muteBadge.Opacity = 1 })
+$win.Add_MouseLeave({ if ($script:dragging) { return }; $script:muteBadge.Opacity = 0 })
+$muteBadge.Add_MouseLeftButtonDown({
+  param($sender, $e)
+  Toggle-Mute
+  Show-Bubble $(if ($script:muted) { '已静音' } else { '已开启声音' }) 1200
+  $e.Handled = $true
+})
+
+# --- 右键菜单 -------------------------------------------------------------------
 $menu = New-Object System.Windows.Controls.ContextMenu
+$script:itemMute = New-Object System.Windows.Controls.MenuItem
+$script:itemMute.Add_Click({ Toggle-Mute })
 $itemReset = New-Object System.Windows.Controls.MenuItem
 $itemReset.Header = '回到右下角'
 $itemReset.Add_Click({
@@ -395,13 +623,17 @@ $itemReset.Add_Click({
 $itemQuit = New-Object System.Windows.Controls.MenuItem
 $itemQuit.Header = '退出'
 $itemQuit.Add_Click({ $win.Close() })
+$null = $menu.Items.Add($script:itemMute)
 $null = $menu.Items.Add($itemReset)
 $null = $menu.Items.Add((New-Object System.Windows.Controls.Separator))
 $null = $menu.Items.Add($itemQuit)
 $sprite.ContextMenu = $menu
+Sync-MuteBadge
 
 $win.Add_Closed({
   try { $timer.Stop() } catch { }
+  try { $holdTimer.Stop() } catch { }
+  try { $bubbleWin.Close() } catch { }
   try { $player.Stop(); $player.Close() } catch { }
   try { $psJob.Stop(); $psJob.Dispose(); $rs.Close(); $rs.Dispose() } catch { }
 })
